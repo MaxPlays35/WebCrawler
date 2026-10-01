@@ -28,10 +28,8 @@ namespace WebCrawler.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<DateTime>("CrawledAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                    b.Property<DateTime?>("CrawledAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<bool>("InQueue")
                         .HasColumnType("boolean");

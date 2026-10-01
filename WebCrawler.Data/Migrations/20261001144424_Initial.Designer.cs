@@ -12,7 +12,7 @@ using WebCrawler.Data;
 namespace WebCrawler.Data.Migrations
 {
     [DbContext(typeof(CrawlerPostgresContext))]
-    [Migration("20260929183245_Initial")]
+    [Migration("20261001144424_Initial")]
     partial class Initial
     {
         /// <inheritdoc />
@@ -31,10 +31,8 @@ namespace WebCrawler.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<DateTime>("CrawledAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                    b.Property<DateTime?>("CrawledAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<bool>("InQueue")
                         .HasColumnType("boolean");

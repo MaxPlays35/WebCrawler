@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using WebCrawler.Configs;
 using WebCrawler.Crawlers;
 using WebCrawler.Data;
 using WebCrawler.Workers;
@@ -16,6 +17,9 @@ var configuration = builder.Configuration
     .Build();
 
 var config = Configuration.Default.WithDefaultLoader().WithXml();
+
+builder.Services.Configure<BFMConfig>(configuration.GetRequiredSection("BFM"));
+builder.Services.Configure<VedomostiConfig>(configuration.GetRequiredSection("Vedomosti"));
 
 builder.Services.AddSingleton(BrowsingContext.New(config));
 
@@ -38,8 +42,10 @@ builder.Services.AddPostgresMigrationHostedService();
 
 builder.Services.AddMassTransit(options =>
 {
-    options.AddConsumer<Worker>(cfg => { cfg.ConcurrentMessageLimit = 1; })
-        .Endpoint(endpoint => endpoint.Name = "tasks");
+    options.AddConsumer<Worker>(cfg =>
+        {
+            cfg.ConcurrentMessageLimit = configuration.GetRequiredSection("WorkerCount").Get<int>();
+        }).Endpoint(endpoint => endpoint.Name = "tasks");
 
     options.AddSqlMessageScheduler();
 

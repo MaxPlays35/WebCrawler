@@ -8,6 +8,6 @@ public class Page
     public string SitemapUrl { get; set; } = null!;
     
     public bool InQueue { get; set; }
-    
-    public DateTime CrawledAt { get; set; } = DateTime.UtcNow;
+
+    public DateTime? CrawledAt { get; set; } = null;
 }

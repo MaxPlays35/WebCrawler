@@ -1,8 +1,11 @@
 using System.Xml.Linq;
+using AngleSharp;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using WebCrawler.Configs;
 using WebCrawler.Data;
 using WebCrawler.Data.Entities;
 
@@ -23,16 +26,22 @@ public class Bfm : BackgroundService
     private readonly ILogger<Bfm> _logger;
     private readonly IBus _sendEndpointProvider;
     private readonly IDbContextFactory<CrawlerPostgresContext> _postgresContextFactory;
+    private readonly IOptionsMonitor<BFMConfig> _options;
+    private readonly IBrowsingContext _browsingContext;
 
     public Bfm(ILogger<Bfm> logger, 
         IHttpClientFactory clientFactory, 
         IBus sendEndpointProvider, 
-        IDbContextFactory<CrawlerPostgresContext> postgresContextFactory)
+        IDbContextFactory<CrawlerPostgresContext> postgresContextFactory,
+        IOptionsMonitor<BFMConfig> options,
+        IBrowsingContext browsingContext)
     {
         _logger = logger;
         _clientFactory = clientFactory;
         _sendEndpointProvider = sendEndpointProvider;
         _postgresContextFactory = postgresContextFactory;
+        _options = options;
+        _browsingContext = browsingContext;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -43,19 +52,16 @@ public class Bfm : BackgroundService
 
         while (!stoppingToken.IsCancellationRequested)
         {
-            var xml = await client.GetStringAsync("https://www.bfm.ru/sitemap.xml", stoppingToken);
+            var xml = await _browsingContext.OpenAsync("https://www.bfm.ru/sitemap.xml", stoppingToken);
+            
 
-            var document = XDocument.Parse(xml);
-            XNamespace ns = "http://www.sitemaps.org/schemas/sitemap/0.9";
-
-            var sitemaps = document
-                .Root!
-                .Elements(ns + "sitemap")
+            var sitemaps = xml
+                .QuerySelectorAll("sitemap")
                 .Select(x => new
                 {
-                    Url = x.Element(ns + "loc")?.Value,
+                    Url = x.QuerySelector("loc").TextContent,
                     LastModified = DateTimeOffset.TryParse(
-                        x.Element(ns + "lastmod")?.Value,
+                        x.QuerySelector("lastmod")?.TextContent,
                         out var lastModified)
                         ? lastModified
                         : (DateTimeOffset?)null
@@ -66,16 +72,14 @@ public class Bfm : BackgroundService
 
             foreach (var sitemap in sitemaps)
             {
-                var articlesXml = await client.GetStringAsync(sitemap.Url, stoppingToken);
+                var articles = await _browsingContext.OpenAsync(sitemap.Url, stoppingToken);
 
-                var articles = XDocument.Parse(articlesXml);
-
-                var parsed = articles.Root!.Elements(ns + "url").Select(x =>
+                var parsed = articles.QuerySelectorAll("url").Select(x =>
                         new
                         {
-                            Url = x.Element(ns + "loc")?.Value,
+                            Url = x.QuerySelector("loc")?.TextContent,
                             LastModified = DateTimeOffset.TryParse(
-                                x.Element(ns + "lastmod")?.Value,
+                                x.QuerySelector("lastmod")?.TextContent,
                                 out var lastModified)
                                 ? lastModified
                                 : (DateTimeOffset?)null
@@ -119,9 +123,9 @@ public class Bfm : BackgroundService
                 }
 
                 _logger.LogInformation("Processed {Count} sitemap urls", parsed.Count);
-                await Task.Delay(5000, stoppingToken);
+                await Task.Delay(TimeSpan.FromMilliseconds(_options.CurrentValue.BatchDelayMs), stoppingToken);
             }
-            await Task.Delay(1000 * 60 * 5, stoppingToken);
+            await Task.Delay(TimeSpan.FromMilliseconds(_options.CurrentValue.RefetchDelayMs), stoppingToken);
         }
     }
 }

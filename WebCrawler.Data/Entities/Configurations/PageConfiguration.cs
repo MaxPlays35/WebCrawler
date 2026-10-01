@@ -11,7 +11,5 @@ public class PageConfiguration : IEntityTypeConfiguration<Page>
         
         builder.Property(x => x.Url).IsRequired();
         builder.Property(x => x.SitemapUrl).IsRequired();
-
-        builder.Property(x => x.CrawledAt).HasDefaultValueSql("now()");
     }
 }

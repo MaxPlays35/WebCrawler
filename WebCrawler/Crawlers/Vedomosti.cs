@@ -3,6 +3,8 @@ using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using WebCrawler.Configs;
 using WebCrawler.Data;
 using WebCrawler.Data.Entities;
 
@@ -14,6 +16,7 @@ public class Vedomosti : BackgroundService
     private readonly IBus _sendEndpointProvider;
     private readonly IDbContextFactory<CrawlerPostgresContext> _postgresContextFactory;
     private readonly IBrowsingContext _browsingContext;
+    private readonly IOptionsMonitor<VedomostiConfig> _options;
     private readonly string[] _sitemaps = [
         "https://www.vedomosti.ru/sitemap_news1.xml",
         "https://www.vedomosti.ru/sitemap_news2.xml",
@@ -26,12 +29,14 @@ public class Vedomosti : BackgroundService
         IHttpClientFactory clientFactory, 
         IBus sendEndpointProvider, 
         IDbContextFactory<CrawlerPostgresContext> postgresContextFactory,
-        IBrowsingContext browsingContext)
+        IBrowsingContext browsingContext,
+        IOptionsMonitor<VedomostiConfig> options)
     {
         _logger = logger;
         _sendEndpointProvider = sendEndpointProvider;
         _postgresContextFactory = postgresContextFactory;
         _browsingContext = browsingContext;
+        _options = options;
     }
     
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -51,11 +56,11 @@ public class Vedomosti : BackgroundService
                         {
                             Url = x.QuerySelector("loc").TextContent,
                             LastModified = DateTimeOffset.TryParse(
-                                x.QuerySelector("last-modified").TextContent,
+                                x.QuerySelector("lastmod")?.TextContent,
                                 out var lastModified)
                                 ? lastModified
                                 : (DateTimeOffset?)null,
-                        });
+                        }).ToList();
 
                 foreach (var article in articles)
                 {
@@ -92,10 +97,11 @@ public class Vedomosti : BackgroundService
                     await transaction.CommitAsync(stoppingToken);
                 }
                 
-                await Task.Delay(5000, stoppingToken);
+                _logger.LogInformation("Processed {Count} sitemap urls", articles.Count);
+                await Task.Delay(TimeSpan.FromMilliseconds(_options.CurrentValue.BatchDelayMs), stoppingToken);
             }
             
-            await Task.Delay(5000, stoppingToken);
+            await Task.Delay(TimeSpan.FromMilliseconds(_options.CurrentValue.RefetchDelayMs), stoppingToken);
         }
     }
 }
