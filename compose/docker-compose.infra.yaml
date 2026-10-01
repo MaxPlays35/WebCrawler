@@ -1,0 +1,63 @@
+﻿name: WebRobot infra
+
+services:
+  postgres:
+    hostname: postgres
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: crawler
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}" ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "5432:5432"
+    networks:
+      - common
+  
+  mongodb:
+    image: mongodb/mongodb-atlas-local
+    hostname: mongodb
+    environment:
+      - MONGODB_INITDB_ROOT_USERNAME=user
+      - MONGODB_INITDB_ROOT_PASSWORD=pass
+    ports:
+      - 27017:27017
+    volumes:
+      - ./init:/docker-entrypoint-initdb.d
+      - db:/data/db
+      - configdb:/data/configdb
+      - mongot:/data/mongot
+    networks:
+      - common
+
+  mongo-express:
+    image: mongo-express:latest
+    container_name: mongo-express
+    restart: unless-stopped
+    depends_on:
+      - mongodb
+    environment:
+      # MongoDB connection settings
+      ME_CONFIG_MONGODB_ENABLE_ADMIN: "true"
+      ME_CONFIG_MONGODB_URL: mongodb://user:pass@mongodb:27017/
+      # Basic auth protects the web UI from unauthorized access
+      ME_CONFIG_BASICAUTH_ENABLED: "true"
+      ME_CONFIG_BASICAUTH_USERNAME: user
+      ME_CONFIG_BASICAUTH_PASSWORD: pass
+    ports:
+      - "8081:8081"
+    networks:
+      - common
+
+volumes:
+  db:
+  configdb:
+  mongot:
+
+networks:
+  common:
+    driver: bridge

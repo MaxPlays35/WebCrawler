@@ -1,0 +1,7 @@
+<Solution>
+  <Folder Name="/compose/">
+    <File Path="compose/docker-compose.infra.yaml" />
+  </Folder>
+  <Project Path="WebCrawler.Data/WebCrawler.Data.csproj" />
+  <Project Path="WebCrawler/WebCrawler.csproj" />
+</Solution>
