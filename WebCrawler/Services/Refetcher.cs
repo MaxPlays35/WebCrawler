@@ -12,46 +12,46 @@ namespace WebCrawler.Workers;
 
 public class Refetcher : BackgroundService
 {
-    private readonly ILogger<Bfm> _logger;
+    private readonly ILogger<Refetcher> _logger;
     private readonly IBus _sendEndpointProvider;
     private readonly IDbContextFactory<CrawlerPostgresContext> _postgresContextFactory;
     private readonly IOptions<BFMConfig> _bmfOptions;
     private readonly IOptions<VedomostiConfig> _vedomostiOptions;
-    private readonly IBrowsingContext _browsingContext;
 
-    public Refetcher(ILogger<Bfm> logger,
+    public Refetcher(ILogger<Refetcher> logger,
         IBus sendEndpointProvider,
         IDbContextFactory<CrawlerPostgresContext> postgresContextFactory,
         IOptions<BFMConfig> bmfOptions,
-        IOptions<VedomostiConfig> vedomostiOptions,
-        IBrowsingContext browsingContext)
+        IOptions<VedomostiConfig> vedomostiOptions)
     {
         _logger = logger;
         _sendEndpointProvider = sendEndpointProvider;
         _postgresContextFactory = postgresContextFactory;
         _bmfOptions = bmfOptions;
         _vedomostiOptions = vedomostiOptions;
-        _browsingContext = browsingContext;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var endpoint = await _sendEndpointProvider.GetSendEndpoint(new Uri("queue:tasks"));
-        var postgresContext = await _postgresContextFactory.CreateDbContextAsync(stoppingToken);
 
         while (!stoppingToken.IsCancellationRequested)
         {
             await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
+            
+            var postgresContext = await _postgresContextFactory.CreateDbContextAsync(stoppingToken);
 
-            var bfm = postgresContext.Pages.Where(x =>
+            var bfm = await postgresContext.Pages.Where(x =>
                 x.InQueue == false &&
                 x.Source == "BFM" &&
-                x.CrawledAt < DateTime.Now - TimeSpan.FromMilliseconds(_bmfOptions.Value.RefetchDelayMs));
+                x.CrawledAt < DateTime.UtcNow - TimeSpan.FromMilliseconds(_bmfOptions.Value.RefetchDelayMs))
+                .ToListAsync(stoppingToken);
 
-            var vedomosti = postgresContext.Pages.Where(x =>
+            var vedomosti = await postgresContext.Pages.Where(x =>
                 x.InQueue == false &&
                 x.Source == "Vedomosti" &&
-                x.CrawledAt < DateTime.Now - TimeSpan.FromMilliseconds(_vedomostiOptions.Value.RefetchDelayMs));
+                x.CrawledAt < DateTime.UtcNow - TimeSpan.FromMilliseconds(_vedomostiOptions.Value.RefetchDelayMs))
+                .ToListAsync(stoppingToken);
 
             foreach (var page in bfm)
             {

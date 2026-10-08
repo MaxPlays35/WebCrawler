@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using AngleSharp;
+using AngleSharp.Dom;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -14,11 +15,11 @@ namespace WebCrawler.Workers;
 
 public class Worker : IConsumer<JobData>
 {
-    private readonly CrawlerPostgresContext _postgresContext;
-    private readonly CrawlerMongoContext _mongoContext;
+    private readonly IOptions<BFMConfig> _bmfOptions;
     private readonly IBrowsingContext _browsingContext;
     private readonly ILogger<Worker> _logger;
-    private readonly IOptions<BFMConfig> _bmfOptions;
+    private readonly CrawlerMongoContext _mongoContext;
+    private readonly CrawlerPostgresContext _postgresContext;
     private readonly IOptions<VedomostiConfig> _vedomostiOptions;
 
     public Worker(CrawlerPostgresContext postgresContext, CrawlerMongoContext mongoContext,
@@ -41,11 +42,20 @@ public class Worker : IConsumer<JobData>
 
         var item = await _postgresContext.Pages
             .Where(page => page.Url == url).SingleAsync(context.CancellationToken);
+        await using var postgresTransaction =
+            await _postgresContext.Database.BeginTransactionAsync(context.CancellationToken);
 
 
-        if (item.CrawledAt is not null && item.CrawledAt + TimeSpan.FromSeconds(100) > DateTime.Now)
+        if (item.CrawledAt is not null && item.CrawledAt > DateTime.UtcNow - TimeSpan.FromMilliseconds(source == "BFM"
+                ? _bmfOptions.Value.RefetchDelayMs
+                : _vedomostiOptions.Value.RefetchDelayMs))
         {
-            _logger.LogInformation("Page {Url} is already in the database.", url);
+            _logger.LogInformation("Page {Url} is already in the crawled.", url);
+
+            item.InQueue = false;
+            await _postgresContext.SaveChangesAsync(context.CancellationToken);
+            await postgresTransaction.CommitAsync(context.CancellationToken);
+
             return;
         }
 
@@ -53,8 +63,6 @@ public class Worker : IConsumer<JobData>
 
         await using var mongoTransaction =
             await _mongoContext.Database.BeginTransactionAsync(context.CancellationToken);
-        await using var postgresTransaction =
-            await _postgresContext.Database.BeginTransactionAsync(context.CancellationToken);
 
         var entity =
             await _mongoContext.ParsedPages.FirstOrDefaultAsync(x => x.Url == url, context.CancellationToken);
@@ -67,7 +75,12 @@ public class Worker : IConsumer<JobData>
         {
             header = page.QuerySelector("#og_title")?.GetAttribute("content") ?? "";
             about = page.QuerySelector("#og_description")?.GetAttribute("content") ?? "";
-            var ps = page.QuerySelector(".current-article")
+            var article = page.QuerySelector(".current-article")
+                ?? throw new InvalidOperationException("BFM article body was not found.");
+            var body = ((IElement)article.Clone(true))
+                .RemoveElements()
+                .RemoveElements(BfmArticleParser.ExcludedSelectors);
+            var ps = body
                 .QuerySelectorAll("p")
                 .Select(p => p.TextContent).ToList();
 
@@ -75,11 +88,15 @@ public class Worker : IConsumer<JobData>
         }
         else if (source == "Vedomosti")
         {
-            var temp = page.QuerySelector(".article__body");
+            var temp = page.QuerySelector(".article__body")
+                ?? throw new InvalidOperationException("Vedomosti article body was not found.");
 
             header = temp.QuerySelector(".article-headline__title")?.TextContent ?? "";
 
-            var ps = temp.QuerySelector(".article-boxes-list.article__boxes")
+            var article = temp.QuerySelector(".article-boxes-list.article__boxes")
+                ?? throw new InvalidOperationException("Vedomosti article content was not found.");
+            var body = ((IElement)article.Clone()).RemoveElements();
+            var ps = body
                 .QuerySelectorAll(".box-paragraph")
                 .Select(p => p.TextContent).ToList();
 
@@ -96,16 +113,18 @@ public class Worker : IConsumer<JobData>
                 Header = header,
                 About = about,
                 Content = content,
-                ContentHash = Convert.ToHexString(SHA512.HashData(Encoding.UTF8.GetBytes(content!))),
+                ContentHash = Convert.ToHexString(
+                    SHA512.HashData(Encoding.UTF8.GetBytes(header + about + content))),
                 RawHtml = page.ToHtml(),
-                CrawledAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                CrawledAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
             };
 
             await _mongoContext.ParsedPages.AddAsync(entity, context.CancellationToken);
         }
         else
         {
-            var hash = Convert.ToHexString(SHA512.HashData(Encoding.UTF8.GetBytes(content!)));
+            var hash = Convert.ToHexString(SHA512.HashData(
+                Encoding.UTF8.GetBytes(header + about + content)));
 
             if (hash != entity.ContentHash)
             {

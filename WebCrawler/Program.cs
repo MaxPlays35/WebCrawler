@@ -59,6 +59,7 @@ builder.Services.AddMassTransit(options =>
 
 builder.Services.AddHostedService<Bfm>();
 builder.Services.AddHostedService<Vedomosti>();
+builder.Services.AddHostedService<Refetcher>();
 
 using var host = builder.Build();
 

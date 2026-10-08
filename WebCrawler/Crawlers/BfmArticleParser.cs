@@ -8,6 +8,10 @@ public record BfmArticle(string Title, string About, string Content);
 
 public static class BfmArticleParser
 {
+    public const string ExcludedSelectors =
+        ".about-article, .adriverBanner, .banner-mobile-wrap, " +
+        "[id^='adfox_'], [id^='bn6_'], #video_banner_in_content";
+
     public static BfmArticle Parse(IDocument document)
     {
         var article = document.QuerySelector(".current-article")
@@ -16,15 +20,9 @@ public static class BfmArticleParser
         var about = Normalize(article.QuerySelector(".about-article")?.TextContent ?? "");
 
         // Work on a copy so callers can still use the original HTML.
-        var body = (IElement)article.Clone(true);
-        foreach (var element in body.QuerySelectorAll(
-                     ".about-article, script, style, noscript, figure, figcaption, " +
-                     "iframe, img, audio, video, button, .adriverBanner, " +
-                     ".banner-mobile-wrap, [id^='adfox_'], [id^='bn6_'], #video_banner_in_content"))
-        {
-            // Embeds may sit between two sentences inside a single paragraph.
-            element.Replace(body.Owner!.CreateTextNode(" "));
-        }
+        var body = ((IElement)article.Clone(true))
+            .RemoveElements()
+            .RemoveElements(ExcludedSelectors);
 
         var text = new StringBuilder();
         AppendText(body, text);
