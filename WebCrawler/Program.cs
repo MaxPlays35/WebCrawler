@@ -1,6 +1,7 @@
 ﻿using AngleSharp;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
+using MongoDB.Driver;
 using WebCrawler.Configs;
 using WebCrawler.Crawlers;
 using WebCrawler.Data;
@@ -27,8 +28,12 @@ builder.Services.AddDbContextFactory<CrawlerPostgresContext>(options =>
     options.UseNpgsql(
         configuration.GetConnectionString("postgres")
     ));
+var mongoClient = new MongoClient(configuration.GetConnectionString("mongo")
+    ?? throw new InvalidOperationException("Missing mongo connection string."));
+builder.Services.AddSingleton<IMongoClient>(mongoClient);
+builder.Services.AddSingleton<IMongoDatabase>(mongoClient.GetDatabase("crawler"));
 builder.Services.AddDbContextFactory<CrawlerMongoContext>(options =>
-    options.UseMongoDB(configuration.GetConnectionString("mongo"), "crawler"));
+    options.UseMongoDB(mongoClient, "crawler"));
 
 builder.Services.AddSingleton<DocumentStatisticsService>();
 

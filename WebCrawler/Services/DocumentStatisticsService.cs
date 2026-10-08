@@ -1,6 +1,5 @@
-using System.Text;
-using Microsoft.EntityFrameworkCore;
-using WebCrawler.Data;
+using MongoDB.Bson;
+using MongoDB.Driver;
 
 namespace WebCrawler.Services;
 
@@ -19,44 +18,61 @@ public sealed record DocumentStatistics(
     public string TextField => "Content";
 }
 
-public sealed class DocumentStatisticsService(IDbContextFactory<CrawlerMongoContext> contextFactory)
+public sealed class DocumentStatisticsService(IMongoDatabase database)
 {
     public async Task<DocumentStatistics> GetAsync(
         int sampleCount, CancellationToken cancellationToken)
     {
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        var documents = context.ParsedPages
-            .AsNoTracking()
-            .Select(page => new { page.Url, page.RawHtml, page.Content })
-            .AsAsyncEnumerable();
+        if (sampleCount is < 1 or > 100)
+            throw new ArgumentOutOfRangeException(nameof(sampleCount));
 
-        long documentsCount = 0;
-        long totalRawHtmlBytes = 0;
-        long totalTextBytes = 0;
-        var samples = new List<DocumentSizeSample>(sampleCount);
+        // Project only sizes and URLs before the facet; HTML never leaves MongoDB.
+        // Both facets consume the same input in one collection scan.
+        BsonDocument[] pipeline =
+        [
+            BsonDocument.Parse("""
+                { "$project": {
+                    "_id": 0,
+                    "url": { "$ifNull": ["$Url", ""] },
+                    "rawHtmlBytes": { "$strLenBytes": { "$ifNull": ["$RawHtml", ""] } },
+                    "textBytes": { "$strLenBytes": { "$ifNull": ["$Content", ""] } }
+                } }
+                """),
+            BsonDocument.Parse($$"""
+                { "$facet": {
+                    "totals": [
+                        { "$group": {
+                            "_id": null,
+                            "documentsCount": { "$sum": 1 },
+                            "totalRawHtmlBytes": { "$sum": "$rawHtmlBytes" },
+                            "totalTextBytes": { "$sum": "$textBytes" },
+                            "averageRawHtmlBytes": { "$avg": "$rawHtmlBytes" },
+                            "averageTextBytes": { "$avg": "$textBytes" }
+                        } }
+                    ],
+                    "samples": [{ "$limit": {{sampleCount}} }]
+                } }
+                """),
+        ];
 
-        // Stream projected fields through EF; UTF-8 byte counting runs locally.
-        // Keep only totals and the requested samples in memory.
-        await foreach (var document in documents.WithCancellation(cancellationToken))
-        {
-            var rawHtmlBytes = Encoding.UTF8.GetByteCount(document.RawHtml ?? string.Empty);
-            var textBytes = Encoding.UTF8.GetByteCount(document.Content ?? string.Empty);
-
-            documentsCount++;
-            totalRawHtmlBytes += rawHtmlBytes;
-            totalTextBytes += textBytes;
-
-            if (samples.Count < sampleCount)
-                samples.Add(new DocumentSizeSample(
-                    document.Url ?? string.Empty, rawHtmlBytes, textBytes));
-        }
+        var collection = database.GetCollection<BsonDocument>("ParsedPages");
+        using var cursor = await collection.AggregateAsync<BsonDocument>(
+            pipeline, cancellationToken: cancellationToken);
+        var result = await cursor.FirstOrDefaultAsync(cancellationToken);
+        var totals = result?["totals"].AsBsonArray.FirstOrDefault()?.AsBsonDocument;
+        var samples = result?["samples"].AsBsonArray
+            .Select(value => new DocumentSizeSample(
+                value["url"].AsString,
+                value["rawHtmlBytes"].ToInt64(),
+                value["textBytes"].ToInt64()))
+            .ToList() ?? [];
 
         return new DocumentStatistics(
-            documentsCount,
-            totalRawHtmlBytes,
-            totalTextBytes,
-            documentsCount == 0 ? 0 : (double)totalRawHtmlBytes / documentsCount,
-            documentsCount == 0 ? 0 : (double)totalTextBytes / documentsCount,
+            totals?["documentsCount"].ToInt64() ?? 0,
+            totals?["totalRawHtmlBytes"].ToInt64() ?? 0,
+            totals?["totalTextBytes"].ToInt64() ?? 0,
+            totals?["averageRawHtmlBytes"].ToDouble() ?? 0,
+            totals?["averageTextBytes"].ToDouble() ?? 0,
             samples);
     }
 }
