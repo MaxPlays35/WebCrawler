@@ -65,5 +65,6 @@ builder.Services.AddHostedService<Refetcher>();
 await using var app = builder.Build();
 
 app.MapStatisticsEndpoints();
+app.MapPageEndpoints();
 
 await app.RunAsync();
