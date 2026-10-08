@@ -1,18 +1,17 @@
 ﻿using AngleSharp;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using WebCrawler.Configs;
 using WebCrawler.Crawlers;
 using WebCrawler.Data;
+using WebCrawler.Endpoints;
+using WebCrawler.Services;
 using WebCrawler.Workers;
 
-var builder = Host.CreateApplicationBuilder(args);
+var builder = WebApplication.CreateBuilder(args);
 
 var configuration = builder.Configuration
-    .SetBasePath(Directory.GetCurrentDirectory())
+    .SetBasePath(AppContext.BaseDirectory)
     .AddJsonFile("appsettings.json", false)
     .Build();
 
@@ -30,6 +29,8 @@ builder.Services.AddDbContextFactory<CrawlerPostgresContext>(options =>
     ));
 builder.Services.AddDbContextFactory<CrawlerMongoContext>(options =>
     options.UseMongoDB(configuration.GetConnectionString("mongo"), "crawler"));
+
+builder.Services.AddSingleton<DocumentStatisticsService>();
 
 builder.Services.AddOptions<SqlTransportOptions>().Configure(options =>
 {
@@ -61,6 +62,8 @@ builder.Services.AddHostedService<Bfm>();
 builder.Services.AddHostedService<Vedomosti>();
 builder.Services.AddHostedService<Refetcher>();
 
-using var host = builder.Build();
+await using var app = builder.Build();
 
-await host.RunAsync();
+app.MapStatisticsEndpoints();
+
+await app.RunAsync();
