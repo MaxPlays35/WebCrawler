@@ -1,5 +1,6 @@
-using MongoDB.Bson;
-using MongoDB.Driver;
+using Microsoft.EntityFrameworkCore;
+using WebCrawler.Data;
+using MongoString = MongoDB.Driver.Linq.StringExtensions;
 
 namespace WebCrawler.Services;
 
@@ -18,7 +19,7 @@ public sealed record DocumentStatistics(
     public string TextField => "Content";
 }
 
-public sealed class DocumentStatisticsService(IMongoDatabase database)
+public sealed class DocumentStatisticsService(IDbContextFactory<CrawlerMongoContext> contextFactory)
 {
     public async Task<DocumentStatistics> GetAsync(
         int sampleCount, CancellationToken cancellationToken)
@@ -26,53 +27,38 @@ public sealed class DocumentStatisticsService(IMongoDatabase database)
         if (sampleCount is < 1 or > 100)
             throw new ArgumentOutOfRangeException(nameof(sampleCount));
 
-        // Project only sizes and URLs before the facet; HTML never leaves MongoDB.
-        // Both facets consume the same input in one collection scan.
-        BsonDocument[] pipeline =
-        [
-            BsonDocument.Parse("""
-                { "$project": {
-                    "_id": 0,
-                    "url": { "$ifNull": ["$Url", ""] },
-                    "rawHtmlBytes": { "$strLenBytes": { "$ifNull": ["$RawHtml", ""] } },
-                    "textBytes": { "$strLenBytes": { "$ifNull": ["$Content", ""] } }
-                } }
-                """),
-            BsonDocument.Parse($$"""
-                { "$facet": {
-                    "totals": [
-                        { "$group": {
-                            "_id": null,
-                            "documentsCount": { "$sum": 1 },
-                            "totalRawHtmlBytes": { "$sum": "$rawHtmlBytes" },
-                            "totalTextBytes": { "$sum": "$textBytes" },
-                            "averageRawHtmlBytes": { "$avg": "$rawHtmlBytes" },
-                            "averageTextBytes": { "$avg": "$textBytes" }
-                        } }
-                    ],
-                    "samples": [{ "$limit": {{sampleCount}} }]
-                } }
-                """),
-        ];
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        var documents = context.ParsedPages.AsNoTracking();
 
-        var collection = database.GetCollection<BsonDocument>("ParsedPages");
-        using var cursor = await collection.AggregateAsync<BsonDocument>(
-            pipeline, cancellationToken: cancellationToken);
-        var result = await cursor.FirstOrDefaultAsync(cancellationToken);
-        var totals = result?["totals"].AsBsonArray.FirstOrDefault()?.AsBsonDocument;
-        var samples = result?["samples"].AsBsonArray
-            .Select(value => new DocumentSizeSample(
-                value["url"].AsString,
-                value["rawHtmlBytes"].ToInt64(),
-                value["textBytes"].ToInt64()))
-            .ToList() ?? [];
+        // MongoDB translates StrLenBytes to $strLenBytes; coalescing becomes $ifNull.
+        // Cast before summing so collection totals can exceed Int32.MaxValue.
+        // Run sequentially: EF does not support concurrent queries on one context.
+        var documentsCount = await documents.LongCountAsync(cancellationToken);
+        var totalRawHtmlBytes = await documents.SumAsync(
+            page => (long)MongoString.StrLenBytes(page.RawHtml ?? string.Empty),
+            cancellationToken);
+        var totalTextBytes = await documents.SumAsync(
+            page => (long)MongoString.StrLenBytes(page.Content ?? string.Empty),
+            cancellationToken);
+        var sampleSizes = await documents
+            .Take(sampleCount)
+            .Select(page => new
+            {
+                Url = page.Url ?? string.Empty,
+                RawHtmlBytes = (long)MongoString.StrLenBytes(page.RawHtml ?? string.Empty),
+                TextBytes = (long)MongoString.StrLenBytes(page.Content ?? string.Empty)
+            })
+            .ToListAsync(cancellationToken);
+        var samples = sampleSizes
+            .Select(page => new DocumentSizeSample(page.Url, page.RawHtmlBytes, page.TextBytes))
+            .ToList();
 
         return new DocumentStatistics(
-            totals?["documentsCount"].ToInt64() ?? 0,
-            totals?["totalRawHtmlBytes"].ToInt64() ?? 0,
-            totals?["totalTextBytes"].ToInt64() ?? 0,
-            totals?["averageRawHtmlBytes"].ToDouble() ?? 0,
-            totals?["averageTextBytes"].ToDouble() ?? 0,
+            documentsCount,
+            totalRawHtmlBytes,
+            totalTextBytes,
+            documentsCount == 0 ? 0 : (double)totalRawHtmlBytes / documentsCount,
+            documentsCount == 0 ? 0 : (double)totalTextBytes / documentsCount,
             samples);
     }
 }

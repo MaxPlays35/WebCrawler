@@ -31,7 +31,6 @@ builder.Services.AddDbContextFactory<CrawlerPostgresContext>(options =>
 var mongoClient = new MongoClient(configuration.GetConnectionString("mongo")
     ?? throw new InvalidOperationException("Missing mongo connection string."));
 builder.Services.AddSingleton<IMongoClient>(mongoClient);
-builder.Services.AddSingleton<IMongoDatabase>(mongoClient.GetDatabase("crawler"));
 builder.Services.AddDbContextFactory<CrawlerMongoContext>(options =>
     options.UseMongoDB(mongoClient, "crawler"));
 
