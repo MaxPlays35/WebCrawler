@@ -12,6 +12,8 @@ public class ParsedPage
     public string Header { get; set; } = null!;
     
     public string About { get; set; } = null!;
+    
+    public string Content { get; set; } = null!;
 
     public string RawHtml { get; set; } = null!;
 

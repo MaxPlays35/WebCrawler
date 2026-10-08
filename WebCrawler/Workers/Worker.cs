@@ -18,16 +18,19 @@ public class Worker : IConsumer<JobData>
     private readonly CrawlerMongoContext _mongoContext;
     private readonly IBrowsingContext _browsingContext;
     private readonly ILogger<Worker> _logger;
-    private readonly IOptionsMonitor<BFMConfig> _bmfOptions;
-    private readonly IOptionsMonitor<VedomostiConfig> _vedomostiOptions;
+    private readonly IOptions<BFMConfig> _bmfOptions;
+    private readonly IOptions<VedomostiConfig> _vedomostiOptions;
 
     public Worker(CrawlerPostgresContext postgresContext, CrawlerMongoContext mongoContext,
-        IBrowsingContext browsingContext, ILogger<Worker> logger)
+        IBrowsingContext browsingContext, ILogger<Worker> logger, IOptions<BFMConfig> bmfOptions,
+        IOptions<VedomostiConfig> vedomostiOptions)
     {
         _postgresContext = postgresContext;
         _mongoContext = mongoContext;
         _browsingContext = browsingContext;
         _logger = logger;
+        _bmfOptions = bmfOptions;
+        _vedomostiOptions = vedomostiOptions;
     }
 
     public async Task Consume(ConsumeContext<JobData> context)
@@ -65,8 +68,8 @@ public class Worker : IConsumer<JobData>
             header = page.QuerySelector("#og_title")?.GetAttribute("content") ?? "";
             about = page.QuerySelector("#og_description")?.GetAttribute("content") ?? "";
             var ps = page.QuerySelector(".current-article")
-                    .QuerySelectorAll("p")
-                    .Select(p => p.TextContent).ToList();
+                .QuerySelectorAll("p")
+                .Select(p => p.TextContent).ToList();
 
             content = string.Join(" ", ps);
         }
@@ -92,6 +95,7 @@ public class Worker : IConsumer<JobData>
                 Source = source,
                 Header = header,
                 About = about,
+                Content = content,
                 ContentHash = Convert.ToHexString(SHA512.HashData(Encoding.UTF8.GetBytes(content!))),
                 RawHtml = page.ToHtml(),
                 CrawledAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
@@ -101,13 +105,19 @@ public class Worker : IConsumer<JobData>
         }
         else
         {
-            entity.Header = header;
-            entity.About = about;
-            entity.ContentHash = Convert.ToHexString(SHA512.HashData(Encoding.UTF8.GetBytes(content!)));
-            entity.RawHtml = page.ToHtml();
-            entity.CrawledAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            var hash = Convert.ToHexString(SHA512.HashData(Encoding.UTF8.GetBytes(content!)));
 
-            _mongoContext.ParsedPages.Update(entity);
+            if (hash != entity.ContentHash)
+            {
+                entity.Header = header;
+                entity.About = about;
+                entity.Content = content;
+                entity.ContentHash = hash;
+                entity.RawHtml = page.ToHtml();
+                entity.CrawledAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+                _mongoContext.ParsedPages.Update(entity);
+            }
         }
 
         item.InQueue = false;
@@ -120,8 +130,8 @@ public class Worker : IConsumer<JobData>
         await postgresTransaction.CommitAsync(context.CancellationToken);
 
         var delay = TimeSpan.FromMilliseconds(source == "BFM"
-            ? _bmfOptions.CurrentValue.CrawlingDelayMs
-            : _vedomostiOptions.CurrentValue.CrawlingDelayMs);
+            ? _bmfOptions.Value.CrawlingDelayMs
+            : _vedomostiOptions.Value.CrawlingDelayMs);
 
         await Task.Delay(delay, context.CancellationToken);
     }

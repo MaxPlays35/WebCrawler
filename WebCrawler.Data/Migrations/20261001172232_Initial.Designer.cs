@@ -12,7 +12,7 @@ using WebCrawler.Data;
 namespace WebCrawler.Data.Migrations
 {
     [DbContext(typeof(CrawlerPostgresContext))]
-    [Migration("20261001144424_Initial")]
+    [Migration("20261001172232_Initial")]
     partial class Initial
     {
         /// <inheritdoc />
@@ -38,6 +38,10 @@ namespace WebCrawler.Data.Migrations
                         .HasColumnType("boolean");
 
                     b.Property<string>("SitemapUrl")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Source")
                         .IsRequired()
                         .HasColumnType("text");
 

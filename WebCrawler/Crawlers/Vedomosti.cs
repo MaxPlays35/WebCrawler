@@ -16,7 +16,7 @@ public class Vedomosti : BackgroundService
     private readonly IBus _sendEndpointProvider;
     private readonly IDbContextFactory<CrawlerPostgresContext> _postgresContextFactory;
     private readonly IBrowsingContext _browsingContext;
-    private readonly IOptionsMonitor<VedomostiConfig> _options;
+    private readonly IOptions<VedomostiConfig> _options;
     private readonly string[] _sitemaps = [
         "https://www.vedomosti.ru/sitemap_news1.xml",
         "https://www.vedomosti.ru/sitemap_news2.xml",
@@ -30,7 +30,7 @@ public class Vedomosti : BackgroundService
         IBus sendEndpointProvider, 
         IDbContextFactory<CrawlerPostgresContext> postgresContextFactory,
         IBrowsingContext browsingContext,
-        IOptionsMonitor<VedomostiConfig> options)
+        IOptions<VedomostiConfig> options)
     {
         _logger = logger;
         _sendEndpointProvider = sendEndpointProvider;
@@ -80,7 +80,8 @@ public class Vedomosti : BackgroundService
                     {
                         Url = article.Url,
                         SitemapUrl = sitemap,
-                        InQueue = true
+                        InQueue = true,
+                        Source = "Vedomosti"
                     };
 
                     await postgresContext.Pages.AddAsync(page, stoppingToken);
@@ -98,10 +99,10 @@ public class Vedomosti : BackgroundService
                 }
                 
                 _logger.LogInformation("Processed {Count} sitemap urls", articles.Count);
-                await Task.Delay(TimeSpan.FromMilliseconds(_options.CurrentValue.BatchDelayMs), stoppingToken);
+                await Task.Delay(TimeSpan.FromMilliseconds(_options.Value.BatchDelayMs), stoppingToken);
             }
             
-            await Task.Delay(TimeSpan.FromMilliseconds(_options.CurrentValue.RefetchDelayMs), stoppingToken);
+            await Task.Delay(TimeSpan.FromMilliseconds(_options.Value.RefetchDelayMs), stoppingToken);
         }
     }
 }

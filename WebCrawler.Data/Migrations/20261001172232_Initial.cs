@@ -17,6 +17,7 @@ namespace WebCrawler.Data.Migrations
                 {
                     Id = table.Column<Guid>(type: "uuid", nullable: false),
                     Url = table.Column<string>(type: "text", nullable: false),
+                    Source = table.Column<string>(type: "text", nullable: false),
                     SitemapUrl = table.Column<string>(type: "text", nullable: false),
                     InQueue = table.Column<bool>(type: "boolean", nullable: false),
                     CrawledAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)

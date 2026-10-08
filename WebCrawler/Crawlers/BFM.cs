@@ -26,14 +26,14 @@ public class Bfm : BackgroundService
     private readonly ILogger<Bfm> _logger;
     private readonly IBus _sendEndpointProvider;
     private readonly IDbContextFactory<CrawlerPostgresContext> _postgresContextFactory;
-    private readonly IOptionsMonitor<BFMConfig> _options;
+    private readonly IOptions<BFMConfig> _options;
     private readonly IBrowsingContext _browsingContext;
 
     public Bfm(ILogger<Bfm> logger, 
         IHttpClientFactory clientFactory, 
         IBus sendEndpointProvider, 
         IDbContextFactory<CrawlerPostgresContext> postgresContextFactory,
-        IOptionsMonitor<BFMConfig> options,
+        IOptions<BFMConfig> options,
         IBrowsingContext browsingContext)
     {
         _logger = logger;
@@ -46,7 +46,6 @@ public class Bfm : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var client = _clientFactory.CreateClient("bfm");
         var endpoint = await _sendEndpointProvider.GetSendEndpoint(new Uri("queue:tasks"));
         var postgresContext =  await _postgresContextFactory.CreateDbContextAsync(stoppingToken);
 
@@ -105,7 +104,8 @@ public class Bfm : BackgroundService
                     {
                         Url = article.Url!,
                         SitemapUrl = sitemap.Url!,
-                        InQueue = true
+                        InQueue = true,
+                        Source = "BFM"
                     };
 
                     await postgresContext.Pages.AddAsync(page, stoppingToken);
@@ -123,9 +123,9 @@ public class Bfm : BackgroundService
                 }
 
                 _logger.LogInformation("Processed {Count} sitemap urls", parsed.Count);
-                await Task.Delay(TimeSpan.FromMilliseconds(_options.CurrentValue.BatchDelayMs), stoppingToken);
+                await Task.Delay(TimeSpan.FromMilliseconds(_options.Value.BatchDelayMs), stoppingToken);
             }
-            await Task.Delay(TimeSpan.FromMilliseconds(_options.CurrentValue.RefetchDelayMs), stoppingToken);
+            await Task.Delay(TimeSpan.FromMilliseconds(_options.Value.RefetchDelayMs), stoppingToken);
         }
     }
 }
