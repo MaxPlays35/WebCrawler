@@ -65,7 +65,7 @@ public class Vedomosti : BackgroundService
                 foreach (var article in articles)
                 {
                     var exists = await postgresContext.Pages
-                        .Where(x => x.Url == article.Url)
+                        .Where(x => x.Url == UrlNormalizer.Normalize(article.Url))
                         .AnyAsync(stoppingToken);
 
                     if (exists)
@@ -78,7 +78,7 @@ public class Vedomosti : BackgroundService
                     
                     var page = new Page
                     {
-                        Url = article.Url,
+                        Url = UrlNormalizer.Normalize(article.Url),
                         SitemapUrl = sitemap,
                         InQueue = true,
                         Source = "Vedomosti"
@@ -89,7 +89,7 @@ public class Vedomosti : BackgroundService
                     
                     await endpoint.Send(
                         new JobData {
-                            Url = article.Url!,
+                            Url = UrlNormalizer.Normalize(article.Url!),
                             SitemapUrl = sitemap,
                             LastModified = article.LastModified,
                             Source = "Vedomosti"

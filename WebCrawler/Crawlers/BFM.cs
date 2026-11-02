@@ -89,7 +89,7 @@ public class Bfm : BackgroundService
                 foreach (var article in parsed)
                 {
                     var exists = await postgresContext.Pages
-                        .Where(x => x.Url == article.Url)
+                        .Where(x => x.Url == UrlNormalizer.Normalize(article.Url!))
                         .AnyAsync(stoppingToken);
 
                     if (exists)
@@ -102,7 +102,7 @@ public class Bfm : BackgroundService
                     
                     var page = new Page
                     {
-                        Url = article.Url!,
+                        Url = UrlNormalizer.Normalize(article.Url!),
                         SitemapUrl = sitemap.Url!,
                         InQueue = true,
                         Source = "BFM"

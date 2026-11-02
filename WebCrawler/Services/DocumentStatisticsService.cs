@@ -4,7 +4,7 @@ using MongoString = MongoDB.Driver.Linq.StringExtensions;
 
 namespace WebCrawler.Services;
 
-public sealed record DocumentSizeSample(string Url, long RawHtmlBytes, long TextBytes);
+public sealed record DocumentSizeSample(Guid Id, string Url, long RawHtmlBytes, long TextBytes);
 
 public sealed record DocumentStatistics(
     long DocumentsCount,
@@ -29,10 +29,7 @@ public sealed class DocumentStatisticsService(IDbContextFactory<CrawlerMongoCont
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
         var documents = context.ParsedPages.AsNoTracking();
-
-        // MongoDB translates StrLenBytes to $strLenBytes; coalescing becomes $ifNull.
-        // Cast before summing so collection totals can exceed Int32.MaxValue.
-        // Run sequentially: EF does not support concurrent queries on one context.
+        
         var documentsCount = await documents.LongCountAsync(cancellationToken);
         var totalRawHtmlBytes = await documents.SumAsync(
             page => (long)MongoString.StrLenBytes(page.RawHtml ?? string.Empty),
@@ -44,13 +41,14 @@ public sealed class DocumentStatisticsService(IDbContextFactory<CrawlerMongoCont
             .Take(sampleCount)
             .Select(page => new
             {
+                Id = page.Id,
                 Url = page.Url ?? string.Empty,
                 RawHtmlBytes = (long)MongoString.StrLenBytes(page.RawHtml ?? string.Empty),
                 TextBytes = (long)MongoString.StrLenBytes(page.Content ?? string.Empty)
             })
             .ToListAsync(cancellationToken);
         var samples = sampleSizes
-            .Select(page => new DocumentSizeSample(page.Url, page.RawHtmlBytes, page.TextBytes))
+            .Select(page => new DocumentSizeSample(page.Id, page.Url, page.RawHtmlBytes, page.TextBytes))
             .ToList();
 
         return new DocumentStatistics(

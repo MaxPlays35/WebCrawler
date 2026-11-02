@@ -77,7 +77,7 @@ public class Worker : IConsumer<JobData>
             about = page.QuerySelector("#og_description")?.GetAttribute("content") ?? "";
             var article = page.QuerySelector(".current-article")
                 ?? throw new InvalidOperationException("BFM article body was not found.");
-            var body = ((IElement)article.Clone(true))
+            var body = ((IElement)article.Clone())
                 .RemoveElements()
                 .RemoveElements(BfmArticleParser.ExcludedSelectors);
             var ps = body

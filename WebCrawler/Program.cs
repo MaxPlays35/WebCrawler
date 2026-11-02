@@ -2,6 +2,7 @@
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using MongoDB.Driver;
+using Scalar.AspNetCore;
 using WebCrawler.Configs;
 using WebCrawler.Crawlers;
 using WebCrawler.Data;
@@ -29,10 +30,10 @@ builder.Services.AddDbContextFactory<CrawlerPostgresContext>(options =>
         configuration.GetConnectionString("postgres")
     ));
 var mongoClient = new MongoClient(configuration.GetConnectionString("mongo")
-    ?? throw new InvalidOperationException("Missing mongo connection string."));
+                                  ?? throw new InvalidOperationException("Missing mongo connection string."));
 builder.Services.AddSingleton<IMongoClient>(mongoClient);
 builder.Services.AddDbContextFactory<CrawlerMongoContext>(options =>
-    options.UseMongoDB(mongoClient, "crawler"));
+    options.UseMongoDB(configuration.GetConnectionString("mongo"), "crawler"));
 
 builder.Services.AddSingleton<DocumentStatisticsService>();
 
@@ -57,6 +58,9 @@ builder.Services.AddMassTransit(options =>
     options.UsingPostgres((context, cfg) =>
     {
         cfg.UseSqlMessageScheduler();
+        
+        cfg.UseMessageRetry(r => r.Exponential(3, TimeSpan.FromSeconds(1), 
+            TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(1)));
 
         cfg.ConfigureEndpoints(context);
     });
@@ -64,11 +68,15 @@ builder.Services.AddMassTransit(options =>
 
 builder.Services.AddHostedService<Bfm>();
 builder.Services.AddHostedService<Vedomosti>();
-builder.Services.AddHostedService<Refetcher>();
+// builder.Services.AddHostedService<Refetcher>();
+builder.Services.AddOpenApi();
 
 await using var app = builder.Build();
 
 app.MapStatisticsEndpoints();
 app.MapPageEndpoints();
+
+app.MapOpenApi();
+app.MapScalarApiReference();
 
 await app.RunAsync();

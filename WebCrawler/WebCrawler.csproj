@@ -12,6 +12,7 @@
       <PackageReference Include="AngleSharp.Xml" Version="1.2.0" />
       <PackageReference Include="MassTransit" Version="8.5.10" />
       <PackageReference Include="MassTransit.SqlTransport.PostgreSQL" Version="8.5.10" />
+      <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.12" />
       <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.12" />
       <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.12">
         <PrivateAssets>all</PrivateAssets>
@@ -23,6 +24,7 @@
       <PackageReference Include="Microsoft.Extensions.Http.Diagnostics" Version="10.10.0" />
       <PackageReference Include="MongoDB.EntityFrameworkCore" Version="10.0.4" />
       <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
+      <PackageReference Include="Scalar.AspNetCore" Version="2.17.14" />
     </ItemGroup>
 
     <ItemGroup>
