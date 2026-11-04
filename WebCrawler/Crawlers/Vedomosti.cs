@@ -42,7 +42,7 @@ public class Vedomosti : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var endpoint = await _sendEndpointProvider.GetSendEndpoint(new Uri("queue:tasks"));
-        var postgresContext =  await _postgresContextFactory.CreateDbContextAsync(stoppingToken);
+        await using var postgresContext = await _postgresContextFactory.CreateDbContextAsync(stoppingToken);
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -64,8 +64,12 @@ public class Vedomosti : BackgroundService
 
                 foreach (var article in articles)
                 {
+                    var normalizedUrl = UrlNormalizer.Normalize(article.Url!);
+                    await using var transaction =
+                        await postgresContext.Database.BeginTransactionAsync(stoppingToken);
+
                     var exists = await postgresContext.Pages
-                        .Where(x => x.Url == UrlNormalizer.Normalize(article.Url))
+                        .Where(x => x.Url == normalizedUrl)
                         .AnyAsync(stoppingToken);
 
                     if (exists)
@@ -73,12 +77,9 @@ public class Vedomosti : BackgroundService
                         continue;
                     }
                     
-                    await using var transaction =
-                        await postgresContext.Database.BeginTransactionAsync(stoppingToken);
-                    
                     var page = new Page
                     {
-                        Url = UrlNormalizer.Normalize(article.Url),
+                        Url = normalizedUrl,
                         SitemapUrl = sitemap,
                         InQueue = true,
                         Source = "Vedomosti"
@@ -89,7 +90,7 @@ public class Vedomosti : BackgroundService
                     
                     await endpoint.Send(
                         new JobData {
-                            Url = UrlNormalizer.Normalize(article.Url!),
+                            Url = normalizedUrl,
                             SitemapUrl = sitemap,
                             LastModified = article.LastModified,
                             Source = "Vedomosti"

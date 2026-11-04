@@ -1,6 +1,7 @@
-﻿using AngleSharp;
+using AngleSharp;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using MongoDB.Driver;
 using Scalar.AspNetCore;
 using WebCrawler.Configs;
@@ -12,11 +13,8 @@ using WebCrawler.Workers;
 
 var builder = WebApplication.CreateBuilder(args);
 
-var configuration = builder.Configuration
-    .SetBasePath(AppContext.BaseDirectory)
-    .AddJsonFile("appsettings.json", false)
-    .Build();
-
+// Keep the default provider order so Kubernetes environment variables override JSON.
+var configuration = builder.Configuration;
 var config = Configuration.Default.WithDefaultLoader().WithXml();
 
 builder.Services.Configure<BFMConfig>(configuration.GetRequiredSection("BFM"));
@@ -49,9 +47,9 @@ builder.Services.AddPostgresMigrationHostedService();
 builder.Services.AddMassTransit(options =>
 {
     options.AddConsumer<Worker>(cfg =>
-        {
-            cfg.ConcurrentMessageLimit = configuration.GetRequiredSection("WorkerCount").Get<int>();
-        }).Endpoint(endpoint => endpoint.Name = "tasks");
+    {
+        cfg.ConcurrentMessageLimit = configuration.GetValue<int>("WorkerCount", 5);
+    }).Endpoint(endpoint => endpoint.Name = "tasks");
 
     options.AddSqlMessageScheduler();
 
@@ -66,6 +64,8 @@ builder.Services.AddMassTransit(options =>
     });
 });
 
+builder.Services.Configure<MassTransitHostOptions>(options => options.WaitUntilStarted = true);
+builder.Services.AddHealthChecks();
 builder.Services.AddHostedService<Bfm>();
 builder.Services.AddHostedService<Vedomosti>();
 // builder.Services.AddHostedService<Refetcher>();
@@ -73,6 +73,16 @@ builder.Services.AddOpenApi();
 
 await using var app = builder.Build();
 
+if (args.Contains("--migrate"))
+{
+    await using var scope = app.Services.CreateAsyncScope();
+    var db = scope.ServiceProvider.GetRequiredService<CrawlerPostgresContext>();
+    await db.Database.MigrateAsync();
+    return;
+}
+
+app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
+app.MapHealthChecks("/health/ready");
 app.MapStatisticsEndpoints();
 app.MapPageEndpoints();
 

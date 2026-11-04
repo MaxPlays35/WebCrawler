@@ -1,0 +1,8 @@
+**/bin
+**/obj
+.git
+.idea
+.DS_Store
+deploy
+compose
+**/*.user

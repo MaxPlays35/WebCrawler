@@ -47,7 +47,7 @@ public class Bfm : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var endpoint = await _sendEndpointProvider.GetSendEndpoint(new Uri("queue:tasks"));
-        var postgresContext =  await _postgresContextFactory.CreateDbContextAsync(stoppingToken);
+        await using var postgresContext = await _postgresContextFactory.CreateDbContextAsync(stoppingToken);
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -88,8 +88,12 @@ public class Bfm : BackgroundService
 
                 foreach (var article in parsed)
                 {
+                    var normalizedUrl = UrlNormalizer.Normalize(article.Url!);
+                    await using var transaction =
+                        await postgresContext.Database.BeginTransactionAsync(stoppingToken);
+
                     var exists = await postgresContext.Pages
-                        .Where(x => x.Url == UrlNormalizer.Normalize(article.Url!))
+                        .Where(x => x.Url == normalizedUrl)
                         .AnyAsync(stoppingToken);
 
                     if (exists)
@@ -97,12 +101,9 @@ public class Bfm : BackgroundService
                         continue;
                     }
                     
-                    await using var transaction =
-                         await postgresContext.Database.BeginTransactionAsync(stoppingToken);
-                    
                     var page = new Page
                     {
-                        Url = UrlNormalizer.Normalize(article.Url!),
+                        Url = normalizedUrl,
                         SitemapUrl = sitemap.Url!,
                         InQueue = true,
                         Source = "BFM"
@@ -113,7 +114,7 @@ public class Bfm : BackgroundService
                     
                     await endpoint.Send(
                         new JobData {
-                        Url = article.Url!,
+                        Url = normalizedUrl,
                         SitemapUrl = sitemap.Url!,
                         LastModified = article.LastModified,
                         Source = "BFM"

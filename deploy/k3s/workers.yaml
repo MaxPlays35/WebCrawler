@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: crawler
+spec:
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  selector:
+    matchLabels: {app: crawler}
+  template:
+    metadata:
+      labels: {app: crawler}
+    spec:
+      nodeSelector:
+        kubernetes.io/os: linux
+      tolerations:
+        - {key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule}
+        - {key: node-role.kubernetes.io/master, operator: Exists, effect: NoSchedule}
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: crawler
+          image: CRAWLER_IMAGE
+          envFrom:
+            - secretRef: {name: crawler-connections}
+          env:
+            - {name: WorkerCount, value: '1'}
+          ports:
+            - {containerPort: 8080}
+          startupProbe:
+            httpGet: {path: /health/live, port: 8080}
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet: {path: /health/live, port: 8080}
+            periodSeconds: 15
+          readinessProbe:
+            httpGet: {path: /health/ready, port: 8080}
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 500m, memory: 1Gi}
+            limits: {cpu: '2', memory: 4Gi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: crawler
+spec:
+  selector: {app: crawler}
+  ports:
+    - {port: 8080, targetPort: 8080}
